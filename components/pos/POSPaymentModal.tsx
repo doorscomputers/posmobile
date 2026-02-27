@@ -223,23 +223,40 @@ function POSPaymentModal({
       }
     }
 
-    if (paymentMethod === 'CHECK') {
-      if (!checkNumber.trim()) {
-        Alert.alert('Check Number Required', 'Please enter the check number.');
-        return;
+    // For refund/zero totals (returns >= sales), auto-complete as cash refund
+    const isRefundOrZero = totals.total <= 0;
+
+    if (!isRefundOrZero) {
+      if (paymentMethod === 'CHECK') {
+        if (!checkNumber.trim()) {
+          Alert.alert('Check Number Required', 'Please enter the check number.');
+          return;
+        }
+        if (!checkPayee.trim()) {
+          Alert.alert('Payee Required', 'Please enter the payee name.');
+          return;
+        }
+        if (checkAmountValue < totals.total) {
+          Alert.alert('Insufficient Check Amount', 'Check amount must be at least the total amount.');
+          return;
+        }
       }
-      if (!checkPayee.trim()) {
-        Alert.alert('Payee Required', 'Please enter the payee name.');
-        return;
-      }
-      if (checkAmountValue < totals.total) {
-        Alert.alert('Insufficient Check Amount', 'Check amount must be at least the total amount.');
+
+      if (paymentMethod === 'CASH' && tenderedAmount < totals.total) {
+        Alert.alert('Insufficient Payment', 'Amount tendered must be at least the total amount.');
         return;
       }
     }
 
-    if (paymentMethod === 'CASH' && tenderedAmount < totals.total) {
-      Alert.alert('Insufficient Payment', 'Amount tendered must be at least the total amount.');
+    if (isRefundOrZero) {
+      // Refund/zero: no payment needed, customer gets money back
+      onComplete({
+        paymentMethod: 'CASH',
+        amountTendered: 0,
+        customerId: selectedCustomer?.id,
+        customerName: selectedCustomer?.name,
+        changeAmount: Math.abs(totals.total),
+      });
       return;
     }
 

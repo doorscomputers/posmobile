@@ -45,7 +45,7 @@ import {
 } from '../components/pos';
 import POSSeniorDiscountModal from '../components/pos/POSSeniorDiscountModal';
 import { useResponsiveTheme, useLandscapeLayout } from '../utils/responsive';
-import { CartItem } from '../hooks/usePOSCart';
+import { CartItem, getCartKey } from '../hooks/usePOSCart';
 import ReceiptPreview, { ReceiptData } from '../components/ReceiptPreview';
 import BluetoothPrinterService from '../utils/BluetoothPrinterService';
 import { buildReceipt, PRINTER_WIDTH } from '../utils/escpos';
@@ -107,6 +107,8 @@ export default function SalesScreen({ navigation, route }: Props) {
     discount,
     priceType,
     setPriceType,
+    itemMode,
+    setItemMode,
     addItem,
     removeItem,
     updateQuantity,
@@ -427,6 +429,7 @@ export default function SalesScreen({ navigation, route }: Props) {
             : (item.price * item.quantity * item.tax_rate) / 100,
           total_amount: item.price * item.quantity,
           price_type: item.price_type,
+          item_type: item.item_type,
         })),
       };
 
@@ -482,7 +485,11 @@ export default function SalesScreen({ navigation, route }: Props) {
           quantity: item.quantity,
           unitPrice: item.price,
           totalPrice: item.price * item.quantity,
+          item_type: item.item_type,
         })),
+        hasReturnItems: totals.returnItemCount > 0,
+        saleSubtotal: totals.saleSubtotal,
+        returnSubtotal: totals.returnSubtotal,
         subtotal: totals.grossTotal || 0,  // Use gross total (sum of item prices)
         taxAmount: totals.taxAmount || 0,
         discountAmount: totals.discountAmount || 0,
@@ -508,6 +515,11 @@ export default function SalesScreen({ navigation, route }: Props) {
       setPaymentVisible(false);
       setReceiptVisible(true);
 
+      // Save return items before clearing cart (needed for damage prompt)
+      const returnItems = totals.returnItemCount > 0
+        ? cart.filter(item => item.item_type === 'return')
+        : [];
+
       // Clear cart and reset state immediately after successful transaction
       // This ensures everything is reset even if receipt modal is dismissed unexpectedly
       clearCart();
@@ -516,6 +528,47 @@ export default function SalesScreen({ navigation, route }: Props) {
       setSelectedCustomer(null);
       setShowCustomerDropdown(false);
       setCustomerSearch('');
+
+      // Check if we should prompt for damage on return items
+      if (returnItems.length > 0) {
+        const askDmg = await dbService.getSetting('ask_damage_on_return');
+        if (askDmg === 'true') {
+          const returnNames = returnItems.map(item => `${item.name} x${item.quantity}`).join('\n');
+          Alert.alert(
+            'Record Returned Items as Damaged?',
+            `The following items were returned:\n\n${returnNames}\n\nShould these be recorded as damaged (stock will be deducted)?`,
+            [
+              { text: 'No', style: 'cancel' },
+              {
+                text: 'Yes, Record as Damaged',
+                onPress: async () => {
+                  try {
+                    const session = await dbService.createDamageSession({
+                      session_name: `Auto-Return-${result.invoiceNumber}`,
+                      notes: `Auto-damage from return transaction ${result.invoiceNumber}`,
+                      started_by: user.id,
+                    });
+                    for (const item of returnItems) {
+                      await dbService.addDamagedItem({
+                        session_id: session.sessionId,
+                        product_id: item.id,
+                        damaged_quantity: item.quantity,
+                        damage_reason: 'DEFECTIVE',
+                        damage_description: `Auto-recorded from return (BO) - Invoice ${result.invoiceNumber}`,
+                        recorded_by: user.id,
+                      });
+                    }
+                    refreshProducts();
+                  } catch (dmgError) {
+                    console.error('Error recording damage for returns:', dmgError);
+                    Alert.alert('Warning', 'Failed to record damaged items. Please record manually in Damaged Items.');
+                  }
+                },
+              },
+            ]
+          );
+        }
+      }
     } catch (error) {
       console.error('Transaction error:', error);
     } finally {
@@ -650,7 +703,11 @@ export default function SalesScreen({ navigation, route }: Props) {
           quantity: item.quantity,
           unitPrice: item.unit_price,
           totalPrice: item.total_amount,
+          item_type: item.item_type || 'sale',
         })),
+        hasReturnItems: items.some((item: any) => item.item_type === 'return'),
+        saleSubtotal: items.filter((item: any) => item.item_type !== 'return').reduce((sum: number, item: any) => sum + (item.total_amount || 0), 0),
+        returnSubtotal: items.filter((item: any) => item.item_type === 'return').reduce((sum: number, item: any) => sum + (item.total_amount || 0), 0),
         subtotal: transaction.subtotal || 0,
         taxAmount: transaction.tax_amount || 0,
         discountAmount: transaction.discount_amount || 0,
@@ -738,6 +795,20 @@ export default function SalesScreen({ navigation, route }: Props) {
                     <Text style={[styles.priceTypeButtonText, rs.priceTypeButtonText, priceType === 'wholesale' && styles.priceTypeButtonTextActive]}>Wholesale</Text>
                   </TouchableOpacity>
                 </View>
+                <View style={[styles.priceTypeButtons, { marginLeft: 12 }]}>
+                  <TouchableOpacity
+                    style={[styles.priceTypeButton, rs.priceTypeButton, itemMode === 'sale' && styles.priceTypeButtonActive]}
+                    onPress={() => setItemMode('sale')}
+                  >
+                    <Text style={[styles.priceTypeButtonText, rs.priceTypeButtonText, itemMode === 'sale' && styles.priceTypeButtonTextActive]}>Sale</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.priceTypeButton, rs.priceTypeButton, itemMode === 'return' && styles.returnModeButtonActive]}
+                    onPress={() => setItemMode('return')}
+                  >
+                    <Text style={[styles.priceTypeButtonText, rs.priceTypeButtonText, itemMode === 'return' && styles.returnModeButtonTextActive]}>Return</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
               <View style={styles.searchRow}>
                 <View style={styles.searchInputWrapper}>
@@ -798,7 +869,7 @@ export default function SalesScreen({ navigation, route }: Props) {
               <FlatList
                 ref={cartListRef}
                 data={cart}
-                keyExtractor={item => item.id.toString()}
+                keyExtractor={item => getCartKey(item)}
                 renderItem={renderCartItem}
                 style={styles.cartList}
                 contentContainerStyle={[styles.cartListContent, rs.cartListContent]}
@@ -890,6 +961,36 @@ export default function SalesScreen({ navigation, route }: Props) {
                     rs.priceTypeButtonText,
                     priceType === 'wholesale' && styles.priceTypeButtonTextActive
                   ]}>Wholesale</Text>
+                </TouchableOpacity>
+              </View>
+              <View style={[styles.priceTypeButtons, { marginLeft: 12 }]}>
+                <TouchableOpacity
+                  style={[
+                    styles.priceTypeButton,
+                    rs.priceTypeButton,
+                    itemMode === 'sale' && styles.priceTypeButtonActive
+                  ]}
+                  onPress={() => setItemMode('sale')}
+                >
+                  <Text style={[
+                    styles.priceTypeButtonText,
+                    rs.priceTypeButtonText,
+                    itemMode === 'sale' && styles.priceTypeButtonTextActive
+                  ]}>Sale</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.priceTypeButton,
+                    rs.priceTypeButton,
+                    itemMode === 'return' && styles.returnModeButtonActive
+                  ]}
+                  onPress={() => setItemMode('return')}
+                >
+                  <Text style={[
+                    styles.priceTypeButtonText,
+                    rs.priceTypeButtonText,
+                    itemMode === 'return' && styles.returnModeButtonTextActive
+                  ]}>Return</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -1337,6 +1438,14 @@ const styles = StyleSheet.create({
   },
   priceTypeButtonTextActive: {
     color: '#FFFFFF',
+  },
+  returnModeButtonActive: {
+    backgroundColor: '#D32F2F',
+    borderColor: '#D32F2F',
+  },
+  returnModeButtonTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
   searchRow: {
     flexDirection: 'row',

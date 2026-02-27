@@ -17,6 +17,7 @@ export interface ReceiptItem {
   quantity: number;
   unitPrice: number;
   totalPrice: number;
+  item_type?: 'sale' | 'return';
 }
 
 export interface ReceiptData {
@@ -78,6 +79,11 @@ export interface ReceiptData {
   // Customer
   customerName?: string;
   customerTin?: string;
+
+  // Buy & Return (BO)
+  hasReturnItems?: boolean;
+  saleSubtotal?: number;
+  returnSubtotal?: number;
 
   // Footer
   footerText?: string;
@@ -225,37 +231,94 @@ export default function ReceiptPreview({
           {renderSeparator()}
 
           {/* Items Header */}
-          <View style={styles.itemsHeader}>
-            <Text style={[styles.columnHeader, { flex: 2 }]}>Item</Text>
-            <Text style={[styles.columnHeader, { flex: 1, textAlign: 'center' }]}>Qty</Text>
-            <Text style={[styles.columnHeader, { flex: 1, textAlign: 'right' }]}>Amount</Text>
-          </View>
-
-          {renderSeparator()}
-
-          {/* Items */}
-          <View style={styles.itemsSection}>
-            {(data.items || []).map((item, index) => (
-              <View key={index} style={styles.itemRow}>
-                <Text style={styles.itemName} numberOfLines={2}>
-                  {item.name || 'Item'}
-                </Text>
-                <View style={styles.itemDetails}>
-                  <Text style={styles.itemQtyPrice}>
-                    {item.quantity || 0} x {formatCurrency(item.unitPrice || 0)}
-                  </Text>
-                  <Text style={styles.itemTotal}>
-                    {formatCurrency(item.totalPrice || 0)}
-                  </Text>
-                </View>
+          {data.hasReturnItems ? (
+            <>
+              {/* Section 1: Items Purchased */}
+              <Text style={styles.sectionLabel}>ITEMS PURCHASED</Text>
+              {renderSeparator()}
+              <View style={styles.itemsSection}>
+                {(data.items || []).filter(i => i.item_type !== 'return').map((item, index) => (
+                  <View key={`sale-${index}`} style={styles.itemRow}>
+                    <Text style={styles.itemName} numberOfLines={2}>
+                      {item.name || 'Item'}
+                    </Text>
+                    <View style={styles.itemDetails}>
+                      <Text style={styles.itemQtyPrice}>
+                        {item.quantity || 0} x {formatCurrency(item.unitPrice || 0)}
+                      </Text>
+                      <Text style={styles.itemTotal}>
+                        {formatCurrency(item.totalPrice || 0)}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
               </View>
-            ))}
-          </View>
+              {renderSeparator()}
 
-          {renderSeparator()}
+              {/* Section 2: Items Returned */}
+              <Text style={styles.sectionLabel}>ITEMS RETURNED (BO)</Text>
+              {renderSeparator()}
+              <View style={styles.itemsSection}>
+                {(data.items || []).filter(i => i.item_type === 'return').map((item, index) => (
+                  <View key={`return-${index}`} style={styles.itemRow}>
+                    <Text style={styles.itemName} numberOfLines={2}>
+                      {item.name || 'Item'}
+                    </Text>
+                    <View style={styles.itemDetails}>
+                      <Text style={styles.itemQtyPrice}>
+                        {item.quantity || 0} x {formatCurrency(item.unitPrice || 0)}
+                      </Text>
+                      <Text style={[styles.itemTotal, { color: '#D32F2F' }]}>
+                        -{formatCurrency(item.totalPrice || 0)}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+              {renderSeparator()}
+            </>
+          ) : (
+            <>
+              <View style={styles.itemsHeader}>
+                <Text style={[styles.columnHeader, { flex: 2 }]}>Item</Text>
+                <Text style={[styles.columnHeader, { flex: 1, textAlign: 'center' }]}>Qty</Text>
+                <Text style={[styles.columnHeader, { flex: 1, textAlign: 'right' }]}>Amount</Text>
+              </View>
+
+              {renderSeparator()}
+
+              {/* Items */}
+              <View style={styles.itemsSection}>
+                {(data.items || []).map((item, index) => (
+                  <View key={index} style={styles.itemRow}>
+                    <Text style={styles.itemName} numberOfLines={2}>
+                      {item.name || 'Item'}
+                    </Text>
+                    <View style={styles.itemDetails}>
+                      <Text style={styles.itemQtyPrice}>
+                        {item.quantity || 0} x {formatCurrency(item.unitPrice || 0)}
+                      </Text>
+                      <Text style={styles.itemTotal}>
+                        {formatCurrency(item.totalPrice || 0)}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+
+              {renderSeparator()}
+            </>
+          )}
 
           {/* BIR VAT Breakdown */}
           <View style={styles.totalsSection}>
+            {/* Sale/Return subtotals when BO items present */}
+            {data.hasReturnItems ? (
+              <>
+                {renderLine('Sales Subtotal:', formatCurrency(data.saleSubtotal || 0))}
+                {renderLine('Returns (BO):', `-${formatCurrency(data.returnSubtotal || 0)}`)}
+              </>
+            ) : null}
             {/* Show VAT breakdown if available */}
             {(data.vatableSales !== undefined || data.vatExemptSales !== undefined || data.zeroRatedSales !== undefined) ? (
               <>
@@ -289,17 +352,28 @@ export default function ReceiptPreview({
 
           {/* Grand Total */}
           <View style={styles.grandTotal}>
-            <Text style={styles.totalLabel}>TOTAL:</Text>
-            <Text style={styles.totalAmount}>{formatCurrency(data.total)}</Text>
+            <Text style={styles.totalLabel}>{data.hasReturnItems ? 'NET TOTAL:' : 'TOTAL:'}</Text>
+            <Text style={[styles.totalAmount, data.total < 0 && { color: '#D32F2F' }]}>
+              {data.total < 0 ? `-${formatCurrency(Math.abs(data.total))}` : formatCurrency(data.total)}
+            </Text>
           </View>
 
           {renderSeparator()}
 
           {/* Payment Details */}
           <View style={styles.paymentSection}>
-            {renderLine('Payment:', data.paymentMethod || 'CASH')}
-            {renderLine('Tendered:', formatCurrency(data.amountTendered || 0))}
-            {renderLine('Change:', formatCurrency(data.changeAmount || 0))}
+            {data.total <= 0 ? (
+              <>
+                {renderLine('Payment:', data.total < 0 ? 'REFUND' : 'NO PAYMENT')}
+                {data.total < 0 ? renderLine('Refund Amount:', formatCurrency(Math.abs(data.total))) : null}
+              </>
+            ) : (
+              <>
+                {renderLine('Payment:', data.paymentMethod || 'CASH')}
+                {renderLine('Tendered:', formatCurrency(data.amountTendered || 0))}
+                {renderLine('Change:', formatCurrency(data.changeAmount || 0))}
+              </>
+            )}
           </View>
 
           {renderSeparator()}
@@ -424,6 +498,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     textAlign: 'center',
     marginVertical: 8,
+    fontFamily: 'monospace',
+  },
+  sectionLabel: {
+    fontSize: 12,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginVertical: 4,
     fontFamily: 'monospace',
   },
   detailsSection: {

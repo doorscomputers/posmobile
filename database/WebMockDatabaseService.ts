@@ -269,30 +269,21 @@ function initializeSampleData() {
   ];
   sizeIdCounter = 6;
 
-  // Products - include all field variants for compatibility
-  products = [
-    { id: 1, code: 'COKE500', barcode: '4801234567890', name: 'Coca-Cola 500ml', description: 'Coca-Cola Regular 500ml', category_id: 1, brand_id: 1, unit_id: 1, size_id: 4, cost: 25.00, cost_price: 25.00, selling_price: 35.00, price: 35.00, stock_quantity: 100, reorder_level: 20, tax_rate: 12, is_vatable: 1, is_vat_inclusive: true, is_active: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), category_name: 'Beverages', brand_name: 'Coca-Cola', unit_name: 'Piece', unit_abbreviation: 'pc', size_name: '500ml' },
-    { id: 2, code: 'SPRITE1L', barcode: '4801234567891', name: 'Sprite 1L', description: 'Sprite 1 Liter', category_id: 1, brand_id: 1, unit_id: 1, size_id: 5, cost: 40.00, cost_price: 40.00, selling_price: 55.00, price: 55.00, stock_quantity: 80, reorder_level: 15, tax_rate: 12, is_vatable: 1, is_vat_inclusive: true, is_active: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), category_name: 'Beverages', brand_name: 'Coca-Cola', unit_name: 'Piece', unit_abbreviation: 'pc', size_name: '1L' },
-    { id: 3, code: 'NESCAFE3N1', barcode: '4801234567892', name: 'Nescafe 3-in-1', description: 'Nescafe 3-in-1 Coffee', category_id: 1, brand_id: 2, unit_id: 3, size_id: 1, cost: 8.00, cost_price: 8.00, selling_price: 12.00, price: 12.00, stock_quantity: 200, reorder_level: 50, tax_rate: 12, is_vatable: 1, is_vat_inclusive: true, is_active: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), category_name: 'Beverages', brand_name: 'Nestle', unit_name: 'Pack', unit_abbreviation: 'pk', size_name: 'Small' },
-    { id: 4, code: 'LMPANCIT', barcode: '4801234567893', name: 'Lucky Me Pancit Canton', description: 'Lucky Me Instant Noodles', category_id: 2, brand_id: 2, unit_id: 3, size_id: 2, cost: 10.00, cost_price: 10.00, selling_price: 15.00, price: 15.00, stock_quantity: 150, reorder_level: 30, tax_rate: 12, is_vatable: 1, is_vat_inclusive: true, is_active: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), category_name: 'Food', brand_name: 'Nestle', unit_name: 'Pack', unit_abbreviation: 'pk', size_name: 'Medium' },
-    { id: 5, code: 'C2APPLE', barcode: '4801234567894', name: 'C2 Apple', description: 'C2 Apple Green Tea', category_id: 1, brand_id: 4, unit_id: 1, size_id: 4, cost: 15.00, cost_price: 15.00, selling_price: 22.00, price: 22.00, stock_quantity: 120, reorder_level: 25, tax_rate: 12, is_vatable: 1, is_vat_inclusive: true, is_active: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString(), category_name: 'Beverages', brand_name: 'Universal Robina', unit_name: 'Piece', unit_abbreviation: 'pc', size_name: '500ml' },
-  ];
-  productIdCounter = 6;
+  // Products - empty for production-ready install
+  products = [];
+  productIdCounter = 1;
 
   // Users - is_active must be boolean true for TypeScript User type
-  // Default password for all users: 1122
+  // Admin: 1122, Manager: 1111, Cashier: 1234
   users = [
     { id: 1, username: 'admin', password_hash: '$simple$AdminSalt1234567$6d4a5ab4', role: 'ADMIN', full_name: 'Administrator', is_active: true, created_at: new Date().toISOString() },
-    { id: 2, username: 'cashier', password_hash: '$simple$CashierSalt12345$26740a7d', role: 'CASHIER', full_name: 'Cashier User', is_active: true, created_at: new Date().toISOString() },
-    { id: 3, username: 'manager', password_hash: '$simple$ManagerSalt12345$5d2db5d9', role: 'MANAGER', full_name: 'Manager User', is_active: true, created_at: new Date().toISOString() },
+    { id: 2, username: 'cashier', password_hash: '$simple$CashierSalt12345$26740ee1', role: 'CASHIER', full_name: 'Cashier User', is_active: true, created_at: new Date().toISOString() },
+    { id: 3, username: 'manager', password_hash: '$simple$ManagerSalt12345$5d2db5b7', role: 'MANAGER', full_name: 'Manager User', is_active: true, created_at: new Date().toISOString() },
   ];
 
-  // Suppliers
-  suppliers = [
-    { id: 1, name: 'ABC Distributors', contact_person: 'Juan Dela Cruz', phone: '09171234567', email: 'abc@email.com', address: 'Manila, Philippines', tin: '123-456-789-000', credit_limit: 50000, payment_terms: 30, is_active: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-    { id: 2, name: 'XYZ Trading', contact_person: 'Maria Santos', phone: '09189876543', email: 'xyz@email.com', address: 'Quezon City, Philippines', tin: '987-654-321-000', credit_limit: 100000, payment_terms: 45, is_active: 1, created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
-  ];
-  supplierIdCounter = 3;
+  // Suppliers - empty for production-ready install
+  suppliers = [];
+  supplierIdCounter = 1;
 
   // Customers
   customers = [
@@ -300,14 +291,14 @@ function initializeSampleData() {
   ];
   customerIdCounter = 2;
 
-  // Settings
+  // Settings - placeholder values for production-ready install
   settings = {
-    'company_name': 'IgoroTech POS',
-    'company_address': 'Baguio City, Philippines',
+    'company_name': 'Your Company Name',
+    'company_address': 'Your Company Address',
     'company_tin': '000-000-000-000',
     'vat_rate': '12.00',
-    'pos_serial': 'POS000001',
-    'receipt_footer': 'Thank you for shopping with us! Come Again!!!',
+    'pos_serial': 'POS000000',
+    'receipt_footer': 'Thank you for your Purchase!',
   };
 }
 
@@ -3129,6 +3120,16 @@ export class WebMockDatabaseService {
     console.log(`[WebMock] Sales return processed: ${returnNumber}, Total: ₱${totalAmount}`);
     return { returnId, returnNumber };
   }
+
+  // ============ RETURNS ANALYTICS ============
+  public async getBOReturnItems(startDate: string, endDate: string): Promise<any[]> { return []; }
+  public async getStandaloneReturnItems(startDate: string, endDate: string): Promise<any[]> { return []; }
+  public async getTopReturnedProducts(startDate: string, endDate: string, limit: number = 20): Promise<any[]> { return []; }
+  public async getReturnsSummary(startDate: string, endDate: string): Promise<any> {
+    return { boCount: 0, boTotal: 0, refundCount: 0, refundTotal: 0, exchangeCount: 0, exchangeTotal: 0 };
+  }
+  public async getReturnReasonAnalysis(startDate: string, endDate: string): Promise<any[]> { return []; }
+  public async getRefundMethodBreakdown(startDate: string, endDate: string): Promise<any[]> { return []; }
 
   public async getSalesReturnsReport(startDate?: string, endDate?: string): Promise<any> {
     let filteredReturns = [...salesReturns];

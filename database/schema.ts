@@ -1020,6 +1020,7 @@ export const initializeDatabase = async (db: SQLite.SQLiteDatabase) => {
       tax_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
       total_amount DECIMAL(10,2) NOT NULL,
       price_type TEXT DEFAULT 'retail',
+      item_type TEXT DEFAULT 'sale',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY (transaction_id) REFERENCES transactions (id) ON DELETE CASCADE,
       FOREIGN KEY (product_id) REFERENCES products (id)
@@ -1029,6 +1030,11 @@ export const initializeDatabase = async (db: SQLite.SQLiteDatabase) => {
   // Add price_type column to transaction_items for existing databases
   try {
     await db.execAsync(`ALTER TABLE transaction_items ADD COLUMN price_type TEXT DEFAULT 'retail';`);
+  } catch (e) { /* Column may already exist */ }
+
+  // Add item_type column to transaction_items for existing databases (BO/return support)
+  try {
+    await db.execAsync(`ALTER TABLE transaction_items ADD COLUMN item_type TEXT DEFAULT 'sale';`);
   } catch (e) { /* Column may already exist */ }
 
   await db.execAsync(`
@@ -2096,7 +2102,7 @@ export const initializeDatabase = async (db: SQLite.SQLiteDatabase) => {
       ('pos_serial', 'POS000000', 'POS Machine Serial Number'),
       ('accreditation_number', 'ACC000000', 'BIR Accreditation Number'),
       ('vat_rate', '12.00', 'VAT rate percentage'),
-      ('receipt_footer', 'Thank you for shopping with us! Come Again!!!', 'Receipt footer message'),
+      ('receipt_footer', 'Thank you for your Purchase!', 'Receipt footer message'),
       ('z_counter', '0', 'Z-Reading counter (cumulative)'),
       ('current_invoice_series', 'INV', 'Current invoice series prefix'),
       ('current_invoice_number', '1', 'Current invoice number');
@@ -2187,27 +2193,28 @@ export const initializeDatabase = async (db: SQLite.SQLiteDatabase) => {
       ('1kg', '1 kilogram', 23);
   `);
 
-  // Insert default users with proper password hashes (default password: 1122)
+  // Insert default users with proper password hashes
+  // Admin: 1122, Manager: 1111, Cashier: 1234
   await db.execAsync(`
     INSERT OR IGNORE INTO users (username, full_name, role, password_hash) VALUES
       ('admin', 'System Administrator', 'ADMIN', '$simple$AdminSalt1234567$6d4a5ab4'),
-      ('manager', 'Store Manager', 'MANAGER', '$simple$ManagerSalt12345$5d2db5d9'),
-      ('cashier', 'Cashier User', 'CASHIER', '$simple$CashierSalt12345$26740a7d');
+      ('manager', 'Store Manager', 'MANAGER', '$simple$ManagerSalt12345$5d2db5b7'),
+      ('cashier', 'Cashier User', 'CASHIER', '$simple$CashierSalt12345$26740ee1');
   `);
 
   // Migration: Update existing users with legacy/demo hashes to proper password hashes
-  // This ensures existing databases get the new secure passwords (default: 1122)
+  // Admin: 1122, Manager: 1111, Cashier: 1234
   // Updates any user that doesn't already have the proper $simple$ hash format
   await db.execAsync(`
     UPDATE users SET password_hash = '$simple$AdminSalt1234567$6d4a5ab4'
     WHERE username = 'admin' AND password_hash NOT LIKE '$simple$%';
   `);
   await db.execAsync(`
-    UPDATE users SET password_hash = '$simple$ManagerSalt12345$5d2db5d9'
+    UPDATE users SET password_hash = '$simple$ManagerSalt12345$5d2db5b7'
     WHERE username = 'manager' AND password_hash NOT LIKE '$simple$%';
   `);
   await db.execAsync(`
-    UPDATE users SET password_hash = '$simple$CashierSalt12345$26740a7d'
+    UPDATE users SET password_hash = '$simple$CashierSalt12345$26740ee1'
     WHERE username = 'cashier' AND password_hash NOT LIKE '$simple$%';
   `);
 

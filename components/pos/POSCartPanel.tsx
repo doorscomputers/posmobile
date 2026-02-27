@@ -13,7 +13,7 @@ import {
 import { Button, useTheme } from 'react-native-paper';
 import POSCartItem from './POSCartItem';
 import { useResponsiveTheme } from '../../utils/responsive';
-import { CartItem, CartTotals, DiscountState } from '../../hooks/usePOSCart';
+import { CartItem, CartTotals, DiscountState, getCartKey } from '../../hooks/usePOSCart';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
@@ -32,9 +32,9 @@ interface POSCartPanelProps {
   cart: CartItem[];
   totals: CartTotals;
   discount: DiscountState;
-  onIncrement: (productId: number) => void;
-  onDecrement: (productId: number) => void;
-  onRemove: (productId: number) => void;
+  onIncrement: (productId: number, itemType?: 'sale' | 'return') => void;
+  onDecrement: (productId: number, itemType?: 'sale' | 'return') => void;
+  onRemove: (productId: number, itemType?: 'sale' | 'return') => void;
   onToggleSeniorCitizen: () => void;
   onSetDiscountType: (type: DiscountState['type']) => void;
   onSetDiscountValue: (value: string) => void;
@@ -108,7 +108,7 @@ function POSCartPanel({
               >
                 {cart.map((item, idx) => (
                   <POSCartItem
-                    key={item.id}
+                    key={getCartKey(item)}
                     item={item}
                     index={idx + 1}
                     onIncrement={onIncrement}
@@ -230,25 +230,40 @@ function POSCartPanel({
 
               {/* Totals */}
               <View style={styles.totalsSection}>
-                {(totals.discountAmount || 0) > 0 ? (
+                {totals.returnItemCount > 0 ? (
                   <>
                     <View style={styles.totalRow}>
-                      <Text style={styles.totalLabel}>Sub-Total</Text>
-                      <Text style={styles.totalValue}>₱{formatCurrency(totals.grossTotal || 0)}</Text>
+                      <Text style={styles.totalLabel}>Sales Subtotal</Text>
+                      <Text style={styles.totalValue}>₱{formatCurrency(totals.saleSubtotal || 0)}</Text>
                     </View>
                     <View style={styles.totalRow}>
-                      <Text style={[styles.totalLabel, styles.discountLabel]}>
-                        {discount.isSeniorCitizen ? 'Discount (SC/PWD)' : 'Discount'}
-                      </Text>
-                      <Text style={[styles.totalValue, styles.discountValue]}>
-                        -₱{formatCurrency(totals.discountAmount || 0)}
-                      </Text>
+                      <Text style={[styles.totalLabel, styles.returnLabel]}>Returns (BO)</Text>
+                      <Text style={[styles.totalValue, styles.returnValue]}>-₱{formatCurrency(totals.returnSubtotal || 0)}</Text>
                     </View>
                   </>
+                ) : (totals.discountAmount || 0) > 0 ? (
+                  <View style={styles.totalRow}>
+                    <Text style={styles.totalLabel}>Sub-Total</Text>
+                    <Text style={styles.totalValue}>₱{formatCurrency(totals.grossTotal || 0)}</Text>
+                  </View>
                 ) : null}
-                <View style={[styles.totalRow, (totals.discountAmount || 0) > 0 && styles.grandTotalRow]}>
-                  <Text style={[styles.grandTotalLabel, { fontSize: fs.h3 }]}>Grand Total</Text>
-                  <Text style={[styles.grandTotalValue, { fontSize: fs.h2 }]}>₱{formatCurrency(totals.total || 0)}</Text>
+                {(totals.discountAmount || 0) > 0 ? (
+                  <View style={styles.totalRow}>
+                    <Text style={[styles.totalLabel, styles.discountLabel]}>
+                      {discount.isSeniorCitizen ? 'Discount (SC/PWD)' : 'Discount'}
+                    </Text>
+                    <Text style={[styles.totalValue, styles.discountValue]}>
+                      -₱{formatCurrency(totals.discountAmount || 0)}
+                    </Text>
+                  </View>
+                ) : null}
+                <View style={[styles.totalRow, (totals.returnItemCount > 0 || (totals.discountAmount || 0) > 0) && styles.grandTotalRow]}>
+                  <Text style={[styles.grandTotalLabel, { fontSize: fs.h3 }]}>
+                    {totals.returnItemCount > 0 ? 'Net Total' : 'Grand Total'}
+                  </Text>
+                  <Text style={[styles.grandTotalValue, totals.total < 0 && styles.refundTotal, { fontSize: fs.h2 }]}>
+                    {totals.total < 0 ? '-' : ''}₱{formatCurrency(Math.abs(totals.total || 0))}
+                  </Text>
                 </View>
               </View>
             </>
@@ -265,7 +280,7 @@ function POSCartPanel({
               contentStyle={styles.checkoutButtonContent}
               labelStyle={[styles.checkoutButtonLabel, { fontSize: fs.button }]}
             >
-              {isEmpty ? 'Add Items to Cart' : `Checkout - ₱${formatCurrency(totals.total || 0)}`}
+              {isEmpty ? 'Add Items to Cart' : totals.total < 0 ? `Refund - ₱${formatCurrency(Math.abs(totals.total))}` : `Checkout - ₱${formatCurrency(totals.total || 0)}`}
             </Button>
           </View>
         </View>
@@ -467,6 +482,16 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#2E7D32',
+  },
+  refundTotal: {
+    color: '#D32F2F',
+  },
+  returnLabel: {
+    color: '#D32F2F',
+  },
+  returnValue: {
+    color: '#D32F2F',
+    fontWeight: '500',
   },
   checkoutSection: {
     paddingHorizontal: 12,

@@ -46,7 +46,7 @@ import {
 } from '../components/pos';
 import POSSeniorDiscountModal from '../components/pos/POSSeniorDiscountModal';
 import StartShiftDialog from '../components/StartShiftDialog';
-import { CartItem } from '../hooks/usePOSCart';
+import { CartItem, getCartKey } from '../hooks/usePOSCart';
 import ReceiptPreview, { ReceiptData } from '../components/ReceiptPreview';
 import BluetoothPrinterService from '../utils/BluetoothPrinterService';
 import { buildReceipt, PRINTER_WIDTH } from '../utils/escpos';
@@ -85,6 +85,7 @@ export default function TabletSalesScreen({ navigation }: Props) {
   // ===== HOOKS =====
   const {
     cart, totals, discount, priceType, setPriceType,
+    itemMode, setItemMode,
     addItem, removeItem, updateQuantity, incrementQuantity, decrementQuantity,
     clearCart, setDiscountType, setDiscountValue,
     setSeniorDiscount, clearSeniorDiscount, getItemQuantity,
@@ -352,23 +353,40 @@ export default function TabletSalesScreen({ navigation }: Props) {
         return;
       }
     }
-    if (paymentMethod === 'CHECK') {
-      if (!checkNumber.trim()) { Alert.alert('Check Number Required', 'Please enter the check number.'); return; }
-      if (!checkPayee.trim()) { Alert.alert('Payee Required', 'Please enter the payee name.'); return; }
-      if (checkAmountValue < totals.total) { Alert.alert('Insufficient Amount', 'Check amount must be at least the total.'); return; }
-    }
-    if (paymentMethod === 'CASH' && tenderedAmount < totals.total) {
-      Alert.alert('Insufficient Payment', 'Amount tendered must be at least the total amount.');
-      return;
+    // For refund/zero totals (returns >= sales), skip payment validation
+    const isRefundOrZero = totals.total <= 0;
+
+    if (!isRefundOrZero) {
+      if (paymentMethod === 'CHECK') {
+        if (!checkNumber.trim()) { Alert.alert('Check Number Required', 'Please enter the check number.'); return; }
+        if (!checkPayee.trim()) { Alert.alert('Payee Required', 'Please enter the payee name.'); return; }
+        if (checkAmountValue < totals.total) { Alert.alert('Insufficient Amount', 'Check amount must be at least the total.'); return; }
+      }
+      if (paymentMethod === 'CASH' && tenderedAmount < totals.total) {
+        Alert.alert('Insufficient Payment', 'Amount tendered must be at least the total amount.');
+        return;
+      }
     }
 
     let finalAmountTendered = 0;
-    if (paymentMethod === 'CHARGE_INVOICE') finalAmountTendered = 0;
-    else if (paymentMethod === 'CHECK') finalAmountTendered = checkAmountValue;
-    else if (paymentMethod === 'CARD' || paymentMethod === 'ONLINE') finalAmountTendered = totals.total;
-    else finalAmountTendered = tenderedAmount;
+    let finalChange = 0;
+    if (isRefundOrZero) {
+      // Refund: customer gets money back
+      finalAmountTendered = 0;
+      finalChange = Math.abs(totals.total);
+    } else if (paymentMethod === 'CHARGE_INVOICE') {
+      finalAmountTendered = 0;
+    } else if (paymentMethod === 'CHECK') {
+      finalAmountTendered = checkAmountValue;
+    } else if (paymentMethod === 'CARD' || paymentMethod === 'ONLINE') {
+      finalAmountTendered = totals.total;
+    } else {
+      finalAmountTendered = tenderedAmount;
+    }
 
-    const finalChange = paymentMethod === 'CHARGE_INVOICE' ? 0 : (finalAmountTendered - totals.total);
+    if (!isRefundOrZero) {
+      finalChange = paymentMethod === 'CHARGE_INVOICE' ? 0 : (finalAmountTendered - totals.total);
+    }
 
     setIsProcessing(true);
     try {
@@ -399,6 +417,7 @@ export default function TabletSalesScreen({ navigation }: Props) {
             : (item.price * item.quantity * item.tax_rate) / 100,
           total_amount: item.price * item.quantity,
           price_type: item.price_type,
+          item_type: item.item_type,
         })),
       };
 
@@ -440,7 +459,11 @@ export default function TabletSalesScreen({ navigation }: Props) {
           quantity: item.quantity,
           unitPrice: item.price,
           totalPrice: item.price * item.quantity,
+          item_type: item.item_type,
         })),
+        hasReturnItems: totals.returnItemCount > 0,
+        saleSubtotal: totals.saleSubtotal,
+        returnSubtotal: totals.returnSubtotal,
         subtotal: totals.grossTotal || 0,
         taxAmount: totals.taxAmount || 0,
         discountAmount: totals.discountAmount || 0,
@@ -463,6 +486,11 @@ export default function TabletSalesScreen({ navigation }: Props) {
       setLastReceiptData(newReceiptData);
       setReceiptVisible(true);
 
+      // Save return items before clearing cart (needed for damage prompt)
+      const returnItems = totals.returnItemCount > 0
+        ? cart.filter(item => item.item_type === 'return')
+        : [];
+
       // Reset state
       clearCart();
       refreshProducts();
@@ -476,6 +504,47 @@ export default function TabletSalesScreen({ navigation }: Props) {
       setCheckAmount('');
       setReferenceNumber('');
       setRemarks('');
+
+      // Check if we should prompt for damage on return items
+      if (returnItems.length > 0) {
+        const askDmg = await dbService.getSetting('ask_damage_on_return');
+        if (askDmg === 'true') {
+          const returnNames = returnItems.map(item => `${item.name} x${item.quantity}`).join('\n');
+          Alert.alert(
+            'Record Returned Items as Damaged?',
+            `The following items were returned:\n\n${returnNames}\n\nShould these be recorded as damaged (stock will be deducted)?`,
+            [
+              { text: 'No', style: 'cancel' },
+              {
+                text: 'Yes, Record as Damaged',
+                onPress: async () => {
+                  try {
+                    const session = await dbService.createDamageSession({
+                      session_name: `Auto-Return-${result.invoiceNumber}`,
+                      notes: `Auto-damage from return transaction ${result.invoiceNumber}`,
+                      started_by: user.id,
+                    });
+                    for (const item of returnItems) {
+                      await dbService.addDamagedItem({
+                        session_id: session.sessionId,
+                        product_id: item.id,
+                        damaged_quantity: item.quantity,
+                        damage_reason: 'DEFECTIVE',
+                        damage_description: `Auto-recorded from return (BO) - Invoice ${result.invoiceNumber}`,
+                        recorded_by: user.id,
+                      });
+                    }
+                    refreshProducts();
+                  } catch (dmgError) {
+                    console.error('Error recording damage for returns:', dmgError);
+                    Alert.alert('Warning', 'Failed to record damaged items. Please record manually in Damaged Items.');
+                  }
+                },
+              },
+            ]
+          );
+        }
+      }
     } catch (error) {
       console.error('Transaction error:', error);
       Alert.alert('Error', 'Failed to complete transaction.');
@@ -565,7 +634,11 @@ export default function TabletSalesScreen({ navigation }: Props) {
         items: items.map((item: any) => ({
           name: item.product_name, quantity: item.quantity,
           unitPrice: item.unit_price, totalPrice: item.total_amount,
+          item_type: item.item_type || 'sale',
         })),
+        hasReturnItems: items.some((item: any) => item.item_type === 'return'),
+        saleSubtotal: items.filter((item: any) => item.item_type !== 'return').reduce((sum: number, item: any) => sum + (item.total_amount || 0), 0),
+        returnSubtotal: items.filter((item: any) => item.item_type === 'return').reduce((sum: number, item: any) => sum + (item.total_amount || 0), 0),
         subtotal: transaction.subtotal || 0,
         taxAmount: transaction.tax_amount || 0,
         discountAmount: transaction.discount_amount || 0,
@@ -672,6 +745,22 @@ export default function TabletSalesScreen({ navigation }: Props) {
           </TouchableOpacity>
         </View>
 
+        {/* Sale/Return Mode Toggle */}
+        <View style={styles.priceTypeToggle}>
+          <TouchableOpacity
+            style={[styles.priceTypeBtn, itemMode === 'sale' && styles.priceTypeBtnActive]}
+            onPress={() => setItemMode('sale')}
+          >
+            <Text style={[styles.priceTypeBtnText, itemMode === 'sale' && styles.priceTypeBtnTextActive]}>Sale</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.priceTypeBtn, itemMode === 'return' && styles.returnModeBtnActive]}
+            onPress={() => setItemMode('return')}
+          >
+            <Text style={[styles.priceTypeBtnText, itemMode === 'return' && styles.returnModeBtnTextActive]}>Return</Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Action Buttons */}
         <TouchableOpacity
           style={styles.topBarAction}
@@ -722,7 +811,7 @@ export default function TabletSalesScreen({ navigation }: Props) {
           <FlatList
             ref={cartListRef}
             data={cart}
-            keyExtractor={(item) => item.id.toString()}
+            keyExtractor={(item) => getCartKey(item)}
             renderItem={renderCartItem}
             contentContainerStyle={styles.cartListContent}
             ListEmptyComponent={
@@ -736,10 +825,23 @@ export default function TabletSalesScreen({ navigation }: Props) {
 
           {/* Cart Summary */}
           <View style={styles.cartSummary}>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Subtotal:</Text>
-              <Text style={styles.summaryValue}>₱{formatCurrency(totals.grossTotal || 0)}</Text>
-            </View>
+            {totals.returnItemCount > 0 ? (
+              <>
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Sales Subtotal:</Text>
+                  <Text style={styles.summaryValue}>₱{formatCurrency(totals.saleSubtotal || 0)}</Text>
+                </View>
+                <View style={styles.summaryRow}>
+                  <Text style={[styles.summaryLabel, { color: '#D32F2F' }]}>Returns (BO):</Text>
+                  <Text style={[styles.summaryValue, { color: '#D32F2F' }]}>-₱{formatCurrency(totals.returnSubtotal || 0)}</Text>
+                </View>
+              </>
+            ) : (
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Subtotal:</Text>
+                <Text style={styles.summaryValue}>₱{formatCurrency(totals.grossTotal || 0)}</Text>
+              </View>
+            )}
             {totals.discountAmount > 0 && (
               <View style={styles.summaryRow}>
                 <Text style={[styles.summaryLabel, { color: '#D32F2F' }]}>
@@ -749,8 +851,10 @@ export default function TabletSalesScreen({ navigation }: Props) {
               </View>
             )}
             <View style={[styles.summaryRow, styles.totalRow]}>
-              <Text style={styles.totalLabel}>TOTAL:</Text>
-              <Text style={styles.totalValue}>₱{formatCurrency(totals.total)}</Text>
+              <Text style={styles.totalLabel}>{totals.returnItemCount > 0 ? 'NET TOTAL:' : 'TOTAL:'}</Text>
+              <Text style={[styles.totalValue, totals.total < 0 && { color: '#D32F2F' }]}>
+                {totals.total < 0 ? '-' : ''}₱{formatCurrency(Math.abs(totals.total))}
+              </Text>
             </View>
           </View>
         </View>
@@ -1253,6 +1357,13 @@ const styles = StyleSheet.create({
   },
   priceTypeBtnTextActive: {
     color: '#333',
+  },
+  returnModeBtnActive: {
+    backgroundColor: '#D32F2F',
+  },
+  returnModeBtnTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
   },
   topBarAction: {
     padding: 8,

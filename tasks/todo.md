@@ -1,35 +1,31 @@
-# Fix Time Formatting on Receipts and All Transactions
+# Production-Ready New Install
 
-## Problem
-1. Receipt time shows garbled Chinese characters (秒, 拝) instead of AM/PM on thermal printer
-2. Time display potentially incorrect due to missing `hour12: true` in formatters
-3. `toLocaleTimeString('en-PH')` on Android produces non-ASCII characters that thermal printers can't handle
-
-## Todo Items
-
-- [x] Add `formatPrinterTime()` ASCII-safe time formatter to `utils/dateTime.ts`
-- [x] Add `formatPrinterDateNumeric()` ASCII-safe date formatter to `utils/dateTime.ts`
-- [x] Fix `formatPhilippineDateTime()` and `formatPhilippineTime()` — add `hour12: true`
-- [x] Fix all 15 `toLocale*` calls in `escpos.ts` with ASCII-safe formatters
-- [x] Fix `POSTransactionCompleteDialog.tsx` thermal print to use `formatPrinterDateTime`
-- [x] Add `hour12: true` to all remaining `toLocaleTimeString()` calls across 10+ screens/components
+## Steps
+- [x] Step 1: Update default user passwords in schema.ts (manager→1111, cashier→1234)
+- [x] Step 2: Update fallback createDefaultUsers() in DatabaseService.ts with correct hashes
+- [x] Step 3: Gut sample data in utils/SampleData.ts (keep clearAllData, make init a no-op)
+- [x] Step 4: Remove sample data initialization from App.tsx
+- [x] Step 5: Update WebMockDatabaseService.ts (empty products/suppliers, update hashes, update settings)
+- [x] Step 6: Change default receipt footer to "Thank you for your Purchase!"
 
 ## Review
 
-### Summary
-Fixed time formatting across 13 files. Thermal printer output now uses manual ASCII formatting (guaranteed no Chinese characters). All UI/PDF time displays now include `hour12: true` for correct AM/PM.
+### Summary of Changes
+1. **database/schema.ts** — Updated manager hash to `$simple$ManagerSalt12345$5d2db5b7` (password: 1111) and cashier hash to `$simple$CashierSalt12345$26740ee1` (password: 1234) in both INSERT and migration UPDATE statements. Changed default receipt_footer to "Thank you for your Purchase!".
 
-### Files Changed
-1. `utils/dateTime.ts` — Added `formatPrinterTime()`, `formatPrinterDateNumeric()`, fixed hour12
-2. `utils/escpos.ts` — Replaced ALL 15 `toLocale*` calls with ASCII-safe formatters
-3. `utils/ReceiptPdfService.ts` — Added hour12: true
-4. `components/ReceiptPreview.tsx` — Added hour12: true
-5. `components/pos/POSTransactionCompleteDialog.tsx` — Switched to formatPrinterDateTime
-6. `screens/EJournalReportScreen.tsx` — Added hour12: true
-7. `screens/CurrentStockLevelsScreen.tsx` — Added hour12: true
-8. `screens/DeliveredItemsReportScreen.tsx` — Added hour12: true
-9. `screens/ESalesReportScreen.tsx` — Added hour12: true
-10. `screens/PhysicalCountReportScreen.tsx` — Added hour12: true
-11. `screens/TopCustomersReportScreen.tsx` — Added hour12: true
-12. `screens/ZeroInventoryReportScreen.tsx` — Added hour12: true
-13. `screens/ReportsScreen.tsx` — Added hour12: true to 4 locations
+2. **database/DatabaseService.ts** — Replaced old `$2b$10$demo_hash_*` fallback hashes in `createDefaultUsers()` with correct `$simple$` hashes matching the new per-role passwords.
+
+3. **utils/SampleData.ts** — Removed 10-product sample array, insertion loop, and company settings overrides. `initializeSampleData()` is now a no-op with a log message. `clearAllData()` kept unchanged.
+
+4. **App.tsx** — Removed `initializeSampleData` variable declaration/require, and removed the entire block that checked for products and called `initializeSampleData()`. App startup goes straight to `setIsDbInitialized(true)`.
+
+5. **database/WebMockDatabaseService.ts** — Emptied products array and suppliers array. Updated user password hashes to match new per-role passwords. Changed settings to placeholder values ("Your Company Name", etc.) and new receipt footer.
+
+6. **screens/SettingsScreen.tsx** — Changed receipt_footer fallback string to "Thank you for your Purchase!".
+
+### Default Credentials
+| Role    | Username | Password |
+|---------|----------|----------|
+| Admin   | admin    | 1122     |
+| Manager | manager  | 1111     |
+| Cashier | cashier  | 1234     |

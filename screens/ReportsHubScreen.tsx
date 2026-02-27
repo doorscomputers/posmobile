@@ -40,6 +40,7 @@ export default function ReportsHubScreen({ navigation }: Props) {
       reports: [
         { title: 'Sales Report', description: 'Complete sales with filters & analysis', icon: 'file-chart', screen: 'SalesReport' },
         { title: 'Void/Refund/Exchange', description: 'View all voided, refunded & exchanged invoices', icon: 'cash-refund', screen: 'VoidRefundExchangeReport' },
+        { title: 'Returns & Refunds Analytics', description: 'Unified returns analysis - BO, refunds, exchanges with product breakdown', icon: 'chart-timeline-variant-shimmer', screen: 'ReturnsAnalyticsReport' },
         { title: 'Sales by Product', description: 'Top selling products report', icon: 'chart-bar', screen: 'SalesReport', params: { initialView: 'products' } },
         { title: 'Sales by Category', description: 'Sales breakdown by category', icon: 'chart-pie', screen: 'SalesReport', params: { initialView: 'categories' } },
       ]

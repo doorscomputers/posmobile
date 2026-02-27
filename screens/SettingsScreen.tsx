@@ -65,6 +65,7 @@ export default function SettingsScreen({ navigation }: Props) {
     receipt_footer: '',
   });
   const [requireCustomerName, setRequireCustomerName] = useState(false);
+  const [askDamageOnReturn, setAskDamageOnReturn] = useState(false);
   const [backingUp, setBackingUp] = useState(false);
   const [loading, setLoading] = useState(false);
   const [dialogVisible, setDialogVisible] = useState(false);
@@ -201,11 +202,13 @@ export default function SettingsScreen({ navigation }: Props) {
         company_tin: await dbService.getSetting('company_tin') || '000-000-000-000',
         pos_serial: await dbService.getSetting('pos_serial') || 'POS000000',
         vat_rate: await dbService.getSetting('vat_rate') || '12.00',
-        receipt_footer: await dbService.getSetting('receipt_footer') || 'Thank you for shopping with us! Come Again!!!',
+        receipt_footer: await dbService.getSetting('receipt_footer') || 'Thank you for your Purchase!',
       };
       setSettings(settingsData);
       const reqCust = await dbService.getSetting('require_customer_name');
       setRequireCustomerName(reqCust === 'true');
+      const askDmg = await dbService.getSetting('ask_damage_on_return');
+      setAskDamageOnReturn(askDmg === 'true');
     } catch (error) {
       console.error('Error loading settings:', error);
       Alert.alert('Error', 'Failed to load settings');
@@ -217,6 +220,17 @@ export default function SettingsScreen({ navigation }: Props) {
       const dbService = getDatabase();
       await dbService.updateSetting('require_customer_name', value ? 'true' : 'false');
       setRequireCustomerName(value);
+    } catch (error) {
+      console.error('Error saving setting:', error);
+      Alert.alert('Error', 'Failed to save setting');
+    }
+  };
+
+  const handleToggleAskDamageOnReturn = async (value: boolean) => {
+    try {
+      const dbService = getDatabase();
+      await dbService.updateSetting('ask_damage_on_return', value ? 'true' : 'false');
+      setAskDamageOnReturn(value);
     } catch (error) {
       console.error('Error saving setting:', error);
       Alert.alert('Error', 'Failed to save setting');
@@ -528,6 +542,26 @@ export default function SettingsScreen({ navigation }: Props) {
                 onPress={() => handleToggleRequireCustomer(!requireCustomerName)}
                 style={styles.listItem}
               />
+
+              {user?.role === 'ADMIN' && (
+                <>
+                  <Divider />
+                  <List.Item
+                    title="Ask Damage on Return (BO)"
+                    description={askDamageOnReturn ? 'Cashier will be asked if returned items should be recorded as damaged' : 'Returned items go back to inventory without prompt'}
+                    left={props => <List.Icon {...props} icon="package-variant-closed-remove" />}
+                    right={() => (
+                      <Switch
+                        value={askDamageOnReturn}
+                        onValueChange={handleToggleAskDamageOnReturn}
+                      />
+                    )}
+                    onPress={() => handleToggleAskDamageOnReturn(!askDamageOnReturn)}
+                    style={styles.listItem}
+                  />
+                </>
+              )}
+
             </Card.Content>
           </Card>
 

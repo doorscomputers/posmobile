@@ -14,6 +14,12 @@ export interface CartItem {
   is_vat_inclusive: boolean;
   stock_quantity: number;
   price_type: 'retail' | 'wholesale';
+  item_type: 'sale' | 'return';
+}
+
+// Composite key for uniquely identifying cart items (same product can be sale + return)
+export function getCartKey(item: { id: number; price_type: string; item_type: string }): string {
+  return `${item.id}-${item.price_type}-${item.item_type}`;
 }
 
 export interface CartTotals {
@@ -28,6 +34,11 @@ export interface CartTotals {
   vatExemptSales: number;
   zeroRatedSales: number;
   vatAmount: number;
+  // Buy & Return (BO) breakdown
+  saleSubtotal: number;
+  returnSubtotal: number;
+  saleItemCount: number;
+  returnItemCount: number;
 }
 
 export interface DiscountState {
@@ -49,11 +60,13 @@ interface UsePOSCartReturn {
   discount: DiscountState;
   priceType: 'retail' | 'wholesale';
   setPriceType: (type: 'retail' | 'wholesale') => void;
+  itemMode: 'sale' | 'return';
+  setItemMode: (mode: 'sale' | 'return') => void;
   addItem: (product: Product) => boolean;
-  removeItem: (productId: number) => void;
-  updateQuantity: (productId: number, quantity: number) => boolean;
-  incrementQuantity: (productId: number) => void;
-  decrementQuantity: (productId: number) => void;
+  removeItem: (productId: number, itemType?: 'sale' | 'return') => void;
+  updateQuantity: (productId: number, quantity: number, itemType?: 'sale' | 'return') => boolean;
+  incrementQuantity: (productId: number, itemType?: 'sale' | 'return') => void;
+  decrementQuantity: (productId: number, itemType?: 'sale' | 'return') => void;
   clearCart: () => void;
   setDiscountType: (type: DiscountState['type']) => void;
   setDiscountValue: (value: string) => void;
@@ -75,24 +88,28 @@ export function usePOSCart(): UsePOSCartReturn {
     seniorCount: 0,
   });
   const [priceType, setPriceType] = useState<'retail' | 'wholesale'>('retail');
+  const [itemMode, setItemMode] = useState<'sale' | 'return'>('sale');
 
   // Add item to cart
   const addItem = useCallback((product: Product): boolean => {
-    // Find existing item with SAME product id AND SAME price type
-    const existingItem = cart.find(item => item.id === product.id && item.price_type === priceType);
-    // Calculate total quantity for this product across all price types (for stock validation)
-    const totalQuantityInCart = cart
-      .filter(item => item.id === product.id)
-      .reduce((sum, item) => sum + item.quantity, 0);
-    const availableStock = product.stock_quantity || 0;
+    // Find existing item with SAME product id, SAME price type, AND SAME item type
+    const existingItem = cart.find(item => item.id === product.id && item.price_type === priceType && item.item_type === itemMode);
 
-    // Check stock
-    if (totalQuantityInCart + 1 > availableStock) {
-      Alert.alert(
-        'Insufficient Stock',
-        `Only ${availableStock} units of "${product.name}" available.${totalQuantityInCart > 0 ? ` You already have ${totalQuantityInCart} in cart.` : ''}`
-      );
-      return false;
+    // For sale items: check stock. For return items: skip stock check (customer is returning stock)
+    if (itemMode === 'sale') {
+      // Calculate total SALE quantity for this product across all price types (for stock validation)
+      const totalSaleQuantityInCart = cart
+        .filter(item => item.id === product.id && item.item_type === 'sale')
+        .reduce((sum, item) => sum + item.quantity, 0);
+      const availableStock = product.stock_quantity || 0;
+
+      if (totalSaleQuantityInCart + 1 > availableStock) {
+        Alert.alert(
+          'Insufficient Stock',
+          `Only ${availableStock} units of "${product.name}" available.${totalSaleQuantityInCart > 0 ? ` You already have ${totalSaleQuantityInCart} in cart.` : ''}`
+        );
+        return false;
+      }
     }
 
     // Determine the price based on priceType
@@ -101,16 +118,16 @@ export function usePOSCart(): UsePOSCartReturn {
       : product.price;
 
     if (existingItem) {
-      // Increment quantity for existing item with same price type
+      // Increment quantity for existing item with same price type and item type
       setCart(prevCart =>
         prevCart.map(item =>
-          item.id === product.id && item.price_type === priceType
+          item.id === product.id && item.price_type === priceType && item.item_type === itemMode
             ? { ...item, quantity: item.quantity + 1 }
             : item
         )
       );
     } else {
-      // Add new cart item with the current price type
+      // Add new cart item with the current price type and item mode
       setCart(prevCart => [
         ...prevCart,
         {
@@ -125,26 +142,30 @@ export function usePOSCart(): UsePOSCartReturn {
           is_vat_inclusive: product.is_vat_inclusive,
           stock_quantity: product.stock_quantity,
           price_type: priceType,
+          item_type: itemMode,
         },
       ]);
     }
     return true;
-  }, [cart, priceType]);
+  }, [cart, priceType, itemMode]);
 
-  // Remove item from cart
-  const removeItem = useCallback((productId: number): void => {
-    setCart(prevCart => prevCart.filter(item => item.id !== productId));
+  // Remove item from cart (matches by productId + itemType)
+  const removeItem = useCallback((productId: number, itemType?: 'sale' | 'return'): void => {
+    setCart(prevCart => prevCart.filter(item =>
+      !(item.id === productId && (itemType === undefined || item.item_type === itemType))
+    ));
   }, []);
 
-  // Update item quantity
-  const updateQuantity = useCallback((productId: number, quantity: number): boolean => {
+  // Update item quantity (matches by productId + itemType)
+  const updateQuantity = useCallback((productId: number, quantity: number, itemType?: 'sale' | 'return'): boolean => {
     if (quantity <= 0) {
-      removeItem(productId);
+      removeItem(productId, itemType);
       return true;
     }
 
-    const item = cart.find(i => i.id === productId);
-    if (item && quantity > item.stock_quantity) {
+    const item = cart.find(i => i.id === productId && (itemType === undefined || i.item_type === itemType));
+    // Only check stock for sale items
+    if (item && item.item_type === 'sale' && quantity > item.stock_quantity) {
       Alert.alert(
         'Insufficient Stock',
         `Only ${item.stock_quantity} units of "${item.name}" available.`
@@ -154,25 +175,27 @@ export function usePOSCart(): UsePOSCartReturn {
 
     setCart(prevCart =>
       prevCart.map(item =>
-        item.id === productId ? { ...item, quantity } : item
+        item.id === productId && (itemType === undefined || item.item_type === itemType)
+          ? { ...item, quantity }
+          : item
       )
     );
     return true;
   }, [cart, removeItem]);
 
   // Increment quantity
-  const incrementQuantity = useCallback((productId: number): void => {
-    const item = cart.find(i => i.id === productId);
+  const incrementQuantity = useCallback((productId: number, itemType?: 'sale' | 'return'): void => {
+    const item = cart.find(i => i.id === productId && (itemType === undefined || i.item_type === itemType));
     if (item) {
-      updateQuantity(productId, item.quantity + 1);
+      updateQuantity(productId, item.quantity + 1, itemType);
     }
   }, [cart, updateQuantity]);
 
   // Decrement quantity
-  const decrementQuantity = useCallback((productId: number): void => {
-    const item = cart.find(i => i.id === productId);
+  const decrementQuantity = useCallback((productId: number, itemType?: 'sale' | 'return'): void => {
+    const item = cart.find(i => i.id === productId && (itemType === undefined || i.item_type === itemType));
     if (item) {
-      updateQuantity(productId, item.quantity - 1);
+      updateQuantity(productId, item.quantity - 1, itemType);
     }
   }, [cart, updateQuantity]);
 
@@ -181,6 +204,7 @@ export function usePOSCart(): UsePOSCartReturn {
     setCart([]);
     setDiscount({ type: 'none', value: '', isSeniorCitizen: false, totalCustomers: 1, seniorCount: 0, scPwdId: undefined, scPwdName: undefined, scPwdType: undefined });
     setPriceType('retail');
+    setItemMode('sale');
   }, []);
 
   // Set discount type
@@ -273,11 +297,27 @@ export function usePOSCart(): UsePOSCartReturn {
     let zeroRatedSales = 0;
     let vatAmount = 0;
     let grossTotal = 0;  // Sum of item prices (what customer sees)
+    let saleSubtotal = 0;
+    let returnSubtotal = 0;
+    let saleItemCount = 0;
+    let returnItemCount = 0;
 
     cart.forEach(item => {
       const itemTotal = roundCurrency(item.price * item.quantity);
-      grossTotal += itemTotal;  // Always add the displayed price
+      const isReturn = item.item_type === 'return';
+      // Sign multiplier: returns subtract from totals
+      const sign = isReturn ? -1 : 1;
+
+      grossTotal += itemTotal * sign;
       itemCount += item.quantity;
+
+      if (isReturn) {
+        returnSubtotal += itemTotal;
+        returnItemCount += item.quantity;
+      } else {
+        saleSubtotal += itemTotal;
+        saleItemCount += item.quantity;
+      }
 
       // Calculate based on VAT type
       if (item.vat_type === 'vatable') {
@@ -286,26 +326,26 @@ export function usePOSCart(): UsePOSCartReturn {
           // Price includes VAT - extract the VAT-exclusive amount
           const vatExclusive = roundCurrency(itemTotal / 1.12);
           const itemVat = roundCurrency(itemTotal - vatExclusive);
-          vatableSales += vatExclusive;
-          vatAmount += itemVat;
-          subtotal += vatExclusive;
-          taxAmount += itemVat;
+          vatableSales += vatExclusive * sign;
+          vatAmount += itemVat * sign;
+          subtotal += vatExclusive * sign;
+          taxAmount += itemVat * sign;
         } else {
           // Price excludes VAT - calculate VAT on top
           const itemVat = roundCurrency(itemTotal * 0.12);
-          vatableSales += itemTotal;
-          vatAmount += itemVat;
-          subtotal += itemTotal;
-          taxAmount += itemVat;
+          vatableSales += itemTotal * sign;
+          vatAmount += itemVat * sign;
+          subtotal += itemTotal * sign;
+          taxAmount += itemVat * sign;
         }
       } else if (item.vat_type === 'vat_exempt') {
         // VAT-Exempt items - no VAT
-        vatExemptSales += itemTotal;
-        subtotal += itemTotal;
+        vatExemptSales += itemTotal * sign;
+        subtotal += itemTotal * sign;
       } else {
         // Zero-Rated items - no VAT (but technically 0% rated)
-        zeroRatedSales += itemTotal;
-        subtotal += itemTotal;
+        zeroRatedSales += itemTotal * sign;
+        subtotal += itemTotal * sign;
       }
     });
 
@@ -316,11 +356,17 @@ export function usePOSCart(): UsePOSCartReturn {
     zeroRatedSales = roundCurrency(zeroRatedSales);
     vatAmount = roundCurrency(vatAmount);
     grossTotal = roundCurrency(grossTotal);
+    saleSubtotal = roundCurrency(saleSubtotal);
+    returnSubtotal = roundCurrency(returnSubtotal);
 
     const totalBeforeDiscount = roundCurrency(subtotal + taxAmount);
+    // Discounts only apply to sale items portion, not return items
+    const salePortionTotal = returnItemCount > 0
+      ? roundCurrency(saleSubtotal + (saleSubtotal > 0 ? roundCurrency(taxAmount * (saleSubtotal / Math.max(subtotal, 0.01))) : 0))
+      : totalBeforeDiscount;
     let discountAmount = 0;
 
-    // Calculate discount
+    // Calculate discount (only on sale items)
     if (discount.isSeniorCitizen && discount.seniorCount > 0) {
       // Senior Citizen/PWD: Per-person calculation for group dining
       // Formula:
@@ -332,10 +378,11 @@ export function usePOSCart(): UsePOSCartReturn {
       const seniorCount = Math.min(discount.seniorCount, totalCustomers);
       const nonSeniorCount = totalCustomers - seniorCount;
 
-      // Per-person share of VAT-exclusive subtotal
-      const perPersonSubtotal = subtotal / totalCustomers;
-      // Per-person share of VAT
-      const perPersonVat = vatAmount / totalCustomers;
+      // Per-person share of VAT-exclusive subtotal (only sale items)
+      const saleOnlySubtotal = returnItemCount > 0 ? Math.max(0, subtotal + returnSubtotal) : subtotal;
+      const saleOnlyVat = returnItemCount > 0 ? Math.max(0, vatAmount + roundCurrency(returnSubtotal * 0.12 / 1.12)) : vatAmount;
+      const perPersonSubtotal = saleOnlySubtotal / totalCustomers;
+      const perPersonVat = saleOnlyVat / totalCustomers;
 
       // Senior portion calculations
       const seniorSubtotal = roundCurrency(perPersonSubtotal * seniorCount);
@@ -355,16 +402,17 @@ export function usePOSCart(): UsePOSCartReturn {
     } else if (discount.type === 'percent' && discount.value) {
       const percentValue = parseFloat(discount.value);
       if (!isNaN(percentValue) && percentValue >= 0 && percentValue <= 100) {
-        discountAmount = roundCurrency((totalBeforeDiscount * percentValue) / 100);
+        discountAmount = roundCurrency((salePortionTotal * percentValue) / 100);
       }
     } else if (discount.type === 'amount' && discount.value) {
       const amountValue = parseFloat(discount.value);
       if (!isNaN(amountValue) && amountValue >= 0) {
-        discountAmount = roundCurrency(Math.min(amountValue, totalBeforeDiscount));
+        discountAmount = roundCurrency(Math.min(amountValue, salePortionTotal));
       }
     }
 
-    const total = roundCurrency(Math.max(0, totalBeforeDiscount - discountAmount));
+    // Allow negative total when returns exceed sales (customer gets refund)
+    const total = roundCurrency(totalBeforeDiscount - discountAmount);
 
     return {
       subtotal,
@@ -377,6 +425,10 @@ export function usePOSCart(): UsePOSCartReturn {
       vatExemptSales,
       zeroRatedSales,
       vatAmount,
+      saleSubtotal,
+      returnSubtotal,
+      saleItemCount,
+      returnItemCount,
     };
   }, [cart, discount]);
 
@@ -386,6 +438,8 @@ export function usePOSCart(): UsePOSCartReturn {
     discount,
     priceType,
     setPriceType,
+    itemMode,
+    setItemMode,
     addItem,
     removeItem,
     updateQuantity,

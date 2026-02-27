@@ -359,6 +359,7 @@ export interface ReceiptData {
     quantity: number;
     unitPrice: number;
     totalPrice: number;
+    item_type?: 'sale' | 'return';
   }>;
 
   // Totals
@@ -373,6 +374,11 @@ export interface ReceiptData {
   vatExemptSales?: number;
   zeroRatedSales?: number;
   vatAmount?: number;
+
+  // Buy & Return (BO)
+  hasReturnItems?: boolean;
+  saleSubtotal?: number;
+  returnSubtotal?: number;
 
   // Payment
   paymentMethod: string;
@@ -446,19 +452,63 @@ export function buildReceipt(data: ReceiptData, printerWidth: number = PRINTER_W
 
   builder.separator();
 
-  // Items header
-  builder
-    .bold(true)
-    .columns('Item', 'Qty', 'Amount')
-    .bold(false)
-    .separator('-');
+  if (data.hasReturnItems) {
+    // === Two-section receipt for Buy & Return (BO) ===
 
-  // Items
-  for (const item of data.items) {
-    builder.itemRow(item.name, item.quantity, item.unitPrice, item.totalPrice);
+    // Section 1: Items Purchased
+    builder
+      .bold(true)
+      .align('center')
+      .println('ITEMS PURCHASED')
+      .align('left')
+      .bold(false)
+      .separator('-');
+
+    const saleItems = data.items.filter(i => i.item_type !== 'return');
+    for (const item of saleItems) {
+      builder.itemRow(item.name, item.quantity, item.unitPrice, item.totalPrice);
+    }
+
+    builder.separator();
+
+    // Section 2: Items Returned (BO)
+    builder
+      .bold(true)
+      .align('center')
+      .println('ITEMS RETURNED (BO)')
+      .align('left')
+      .bold(false)
+      .separator('-');
+
+    const returnItems = data.items.filter(i => i.item_type === 'return');
+    for (const item of returnItems) {
+      builder.itemRow(item.name, item.quantity, item.unitPrice, item.totalPrice);
+    }
+
+    builder.separator();
+
+    // Sale/Return subtotals
+    builder
+      .leftRight('Sales Subtotal:', `P${(data.saleSubtotal || 0).toFixed(2)}`)
+      .leftRight('Returns (BO):', `-P${(data.returnSubtotal || 0).toFixed(2)}`);
+
+  } else {
+    // === Standard single-section receipt ===
+
+    // Items header
+    builder
+      .bold(true)
+      .columns('Item', 'Qty', 'Amount')
+      .bold(false)
+      .separator('-');
+
+    // Items
+    for (const item of data.items) {
+      builder.itemRow(item.name, item.quantity, item.unitPrice, item.totalPrice);
+    }
+
+    builder.separator();
   }
-
-  builder.separator();
 
   // BIR VAT Breakdown (if available) or legacy totals
   if (data.vatableSales !== undefined || data.vatExemptSales !== undefined || data.zeroRatedSales !== undefined) {
@@ -483,15 +533,22 @@ export function buildReceipt(data: ReceiptData, printerWidth: number = PRINTER_W
   builder
     .doubleSeparator()
     .bold(true)
-    .leftRight('TOTAL:', `P${data.total.toFixed(2)}`)
+    .leftRight(data.hasReturnItems ? 'NET TOTAL:' : 'TOTAL:', `P${data.total.toFixed(2)}`)
     .bold(false)
     .separator();
 
   // Payment
-  builder
-    .leftRight('Payment:', data.paymentMethod)
-    .leftRight('Tendered:', `P${data.amountTendered.toFixed(2)}`)
-    .leftRight('Change:', `P${data.changeAmount.toFixed(2)}`);
+  if (data.total <= 0) {
+    // Refund or zero total
+    builder
+      .leftRight('Payment:', data.total < 0 ? 'REFUND' : 'NO PAYMENT')
+      .leftRight('Refund Amount:', `P${Math.abs(data.changeAmount || 0).toFixed(2)}`);
+  } else {
+    builder
+      .leftRight('Payment:', data.paymentMethod)
+      .leftRight('Tendered:', `P${data.amountTendered.toFixed(2)}`)
+      .leftRight('Change:', `P${data.changeAmount.toFixed(2)}`);
+  }
 
   builder.feed();
 
