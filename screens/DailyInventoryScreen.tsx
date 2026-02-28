@@ -32,6 +32,7 @@ import {
 } from 'react-native-paper';
 import { StackNavigationProp } from '@react-navigation/stack';
 import { useFocusEffect } from '@react-navigation/native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { RootStackParamList } from '../App';
 import { getDatabase } from '../database/getDatabase';
 import { useAuth } from '../contexts/AuthContext';
@@ -63,6 +64,7 @@ export default function DailyInventoryScreen({ navigation }: Props) {
   const { user } = useAuth();
   const theme = useTheme();
   const { sp, fs, lo } = useResponsiveTheme();
+  const insets = useSafeAreaInsets();
 
   const [loading, setLoading] = useState(false);
   const [activeSession, setActiveSession] = useState<any | null>(null);
@@ -427,7 +429,7 @@ export default function DailyInventoryScreen({ navigation }: Props) {
   if (!activeSession) {
     return (
       <View style={[styles.container, { backgroundColor: theme.colors.background }]}>
-        <ScrollView contentContainerStyle={{ padding: lo.screenPadding }}>
+        <ScrollView contentContainerStyle={{ padding: lo.screenPadding, paddingBottom: lo.screenPadding + insets.bottom }}>
           <Card style={[styles.card, { marginBottom: sp.lg }]}>
             <Card.Content style={{ alignItems: 'center', paddingVertical: sp.xl }}>
               <IconButton icon="clipboard-check-outline" size={48} iconColor={theme.colors.primary} />
@@ -635,7 +637,7 @@ export default function DailyInventoryScreen({ navigation }: Props) {
       />
 
       {/* Action Buttons */}
-      <View style={[styles.footer, { padding: sp.sm, backgroundColor: theme.colors.surface }]}>
+      <View style={[styles.footer, { padding: sp.sm, paddingBottom: sp.sm + insets.bottom, backgroundColor: theme.colors.surface }]}>
         {isBeginning && (
           <View>
             <View style={styles.footerButtons}>
